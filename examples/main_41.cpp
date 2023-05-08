@@ -14,8 +14,11 @@
 #include <iomanip>
 #include <algorithm>
 
-//#define SHARED_MTX   // C++14
+#include "../safe_ptr.h"
+using namespace sf;
 
+//#define SHARED_MTX   // C++14
+/*
 #ifdef SHARED_MTX
 #include <shared_mutex>   // C++14
 #endif
@@ -68,7 +71,7 @@ protected:
     template<typename, typename, size_t, size_t> friend class lock_timed_transaction;
     template<class mutex_type> friend class std::lock_guard;  // MSVS2013 or Clang 4.0
     //template<class... mutex_types> friend class std::lock_guard;  // C++17 or MSVS2015
-#ifdef SHARED_MTX    
+#ifdef SHARED_MTX
     template<typename mutex_type> friend class std::shared_lock;  // C++14
 #endif
 
@@ -90,7 +93,7 @@ public:
 template<typename T> using default_safe_ptr = safe_ptr<T, std::recursive_mutex, std::unique_lock<std::recursive_mutex>, std::unique_lock<std::recursive_mutex>>;
 
 #ifdef SHARED_MTX // C++14
-template<typename T> using shared_mutex_safe_ptr = 
+template<typename T> using shared_mutex_safe_ptr =
 safe_ptr< T, std::shared_timed_mutex, std::unique_lock<std::shared_timed_mutex>, std::shared_lock<std::shared_timed_mutex> >;
 #endif
 // ---------------------------------------------------------------
@@ -132,12 +135,12 @@ template<typename T, typename mutex_t = std::recursive_mutex, typename x_lock_t 
     typename s_lock_t = std::unique_lock<mutex_t >>
 struct safe_hide_ptr : protected safe_ptr<T, mutex_t, x_lock_t, s_lock_t> {
     template<typename... Args> safe_hide_ptr(Args... args) : safe_ptr<T, mutex_t, x_lock_t, s_lock_t>(args...) {}
-  
+
     friend struct link_safe_ptrs;
     template<typename, typename, size_t, size_t> friend class lock_timed_transaction;
     template<typename some_type> friend struct xlocked_safe_ptr;
     template<typename some_type> friend struct slocked_safe_ptr;
-  
+
     template<typename req_lock> using auto_lock_t = typename safe_ptr<T, mutex_t, x_lock_t, s_lock_t>::template auto_lock_t<req_lock>;
     template<typename req_lock> using auto_lock_obj_t = typename safe_ptr<T, mutex_t, x_lock_t, s_lock_t>::template auto_lock_obj_t<req_lock>;
     using auto_nolock_t = typename safe_ptr<T, mutex_t, x_lock_t, s_lock_t>::auto_nolock_t;
@@ -152,12 +155,12 @@ template<typename T, typename mutex_t = std::recursive_mutex, typename x_lock_t 
 struct safe_hide_obj : protected safe_obj<T, mutex_t, x_lock_t, s_lock_t> {
     template<typename... Args> safe_hide_obj(Args... args) : safe_obj<T, mutex_t, x_lock_t, s_lock_t>(args...) {}
     explicit operator T() const { return static_cast< safe_obj<T, mutex_t, x_lock_t, s_lock_t> >( *this ); };
-  
+
     friend struct link_safe_ptrs;
     template<typename, typename, size_t, size_t> friend class lock_timed_transaction;
     template<typename some_type> friend struct xlocked_safe_ptr;
     template<typename some_type> friend struct slocked_safe_ptr;
-  
+
     template<typename req_lock> using auto_lock_t = typename safe_obj<T, mutex_t, x_lock_t, s_lock_t>::template auto_lock_t<req_lock>;
     template<typename req_lock> using auto_lock_obj_t = typename safe_obj<T, mutex_t, x_lock_t, s_lock_t>::template auto_lock_obj_t<req_lock>;
     using auto_nolock_t = typename safe_obj<T, mutex_t, x_lock_t, s_lock_t>::auto_nolock_t;
@@ -299,7 +302,7 @@ class contention_free_shared_mutex {
 
 			for (size_t i = 0; i < register_thread_array.size(); ++i) {
 				if (register_thread_array[i] == thread_id) {
-					set_index = i;   // thread already registred                
+					set_index = i;   // thread already registred
 					break;
 				}
 			}
@@ -474,11 +477,11 @@ using default_contention_free_shared_mutex = contention_free_shared_mutex<>;
 
 template<typename T> using contfree_safe_ptr = safe_ptr<T, contention_free_shared_mutex<>,
     std::unique_lock<contention_free_shared_mutex<>>, shared_lock_guard<contention_free_shared_mutex<>> >;
-    
-template<typename T> using contfree_safe_hide_ptr = safe_hide_ptr<T, contention_free_shared_mutex<>,
-    std::unique_lock<contention_free_shared_mutex<>>, shared_lock_guard<contention_free_shared_mutex<>> >;    
-// ---------------------------------------------------------------
 
+template<typename T> using contfree_safe_hide_ptr = safe_hide_ptr<T, contention_free_shared_mutex<>,
+    std::unique_lock<contention_free_shared_mutex<>>, shared_lock_guard<contention_free_shared_mutex<>> >;
+// ---------------------------------------------------------------
+*/
 
 
 struct field_t { int money, time; field_t(int m, int t) : money(m), time(t) {} field_t() : money(0), time(0) {} };
@@ -496,11 +499,11 @@ void benchmark_safe_ptr_rowlock(T safe_map, size_t const iterations_count, size_
     const unsigned int seed = (unsigned)std::chrono::system_clock::now().time_since_epoch().count();
     std::default_random_engine generator(seed);
     std::uniform_int_distribution<size_t> index_distribution(0, container_size);
-                
+
     enum { insert_op, delete_op, update_op, read_op };
     std::uniform_int_distribution<size_t> operation_distribution(insert_op, read_op);    // 0 - 4
 
-    for (size_t i = 0; i < iterations_count; ++i) 
+    for (size_t i = 0; i < iterations_count; ++i)
     {
         int const rnd_index = index_distribution(generator);    // 0 - container_size
         int const num_op = operation_distribution(generator);   // insert_op, update_op, delete_op, read_op
@@ -547,7 +550,7 @@ int main() {
     std::cout << "Threads: " << vec_thread.size() << std::endl;
 
 
-    std::cout << "safe<map,contf>rowlock: \n"; 
+    std::cout << "safe<map,contf>rowlock: \n";
     for (auto &i : vec_thread) i = std::move(std::thread([&]() {
         benchmark_safe_ptr_rowlock(safe_map_contfree_rowlock_global, iterations_count, container_size);
     }));
@@ -556,14 +559,14 @@ int main() {
     // safe_hide_ptr & safe_hide_obj
     {
         safe_hide_obj<field_t, spinlock_t> field_hide_tmp;
-        //safe_obj<field_t, spinlock_t> &field_tmp = field_hide_tmp;    // conversion denied - compile-time error     
-        
+        //safe_obj<field_t, spinlock_t> &field_tmp = field_hide_tmp;    // conversion denied - compile-time error
+
         //field_hide_tmp->money = 10;    // access denied - compile-time error
         auto x_field = xlock_safe_ptr(field_hide_tmp);  // locked until x_field is alive
         x_field->money = 10;            // access granted
     }
 
-    std::cout << "end";
+    std::cout << "end" << std::endl;
 
     return 0;
 }

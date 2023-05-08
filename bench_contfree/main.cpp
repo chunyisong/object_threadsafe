@@ -14,6 +14,10 @@
 #include <iomanip>
 #include <algorithm>
 
+#include "../safe_ptr.h"
+using namespace sf;
+
+/*
 #define SHARED_MTX   // C++14
 
 #ifdef SHARED_MTX
@@ -71,7 +75,7 @@ protected:
 #else
     template<class mutex_type> friend class std::lock_guard;  // other compilers
 #endif
-#ifdef SHARED_MTX    
+#ifdef SHARED_MTX
     template<typename mutex_type> friend class std::shared_lock;  // C++14
 #endif
 
@@ -93,7 +97,7 @@ public:
 template<typename T> using default_safe_ptr = safe_ptr<T, std::recursive_mutex, std::unique_lock<std::recursive_mutex>, std::unique_lock<std::recursive_mutex>>;
 
 #ifdef SHARED_MTX // C++14
-template<typename T> using shared_mutex_safe_ptr = 
+template<typename T> using shared_mutex_safe_ptr =
 safe_ptr< T, std::shared_timed_mutex, std::unique_lock<std::shared_timed_mutex>, std::shared_lock<std::shared_timed_mutex> >;
 #endif
 // ---------------------------------------------------------------
@@ -209,7 +213,7 @@ class contention_free_shared_mutex {
 
 			for (size_t i = 0; i < register_thread_array.size(); ++i) {
 				if (register_thread_array[i] == thread_id) {
-					set_index = i;   // thread already registred                
+					set_index = i;   // thread already registred
 					break;
 				}
 			}
@@ -385,6 +389,7 @@ using default_contention_free_shared_mutex = contention_free_shared_mutex<>;
 template<typename T> using contfree_safe_ptr = safe_ptr<T, contention_free_shared_mutex<>,
     std::unique_lock<contention_free_shared_mutex<>>, shared_lock_guard<contention_free_shared_mutex<>> >;
 // ---------------------------------------------------------------
+*/
 
 struct field_t { int money, time; field_t(int m, int t) : money(m), time(t) {} field_t() : money(0), time(0) {} };
 
@@ -406,6 +411,9 @@ shared_mutex_safe_ptr< std::map<int, field_t> > safe_map_shared_mutex_global;
 // container-4
 contfree_safe_ptr< std::map<int, field_t> > safe_map_contfree_global;
 
+// container-5
+typedef safe_hide_obj<field_t, spinlock_t> safe_obj_field_t;
+contfree_safe_hide_ptr< std::map<int, safe_obj_field_t> > safe_map_contfree_rowlock_global;
 
 enum { insert_op, delete_op, update_op, read_op };
 std::uniform_int_distribution<size_t> percent_distribution(1, 100);    // 1 - 100 %
@@ -426,18 +434,18 @@ void benchmark_std_map(T &test_map, size_t const iterations_count,
     std::chrono::high_resolution_clock::time_point hrc_end, hrc_start = std::chrono::high_resolution_clock::now();
     double max_time = 0;
     std::vector<double> median_arr;
-    
+
     for (size_t i = 0; i < iterations_count; ++i) {
         int const rnd_index = index_distribution(generator);
         bool const write_flag = (percent_distribution(generator) < percent_write);
         int const num_op = (write_flag) ? i % 3 : read_op;   // (insert_op, update_op, delete_op), read_op
-        
+
         if (measure_latency) {
             hrc_end = std::chrono::high_resolution_clock::now();
             const double cur_time = std::chrono::duration<double>(hrc_end - hrc_start).count();
             max_time = std::max(max_time, cur_time);
             if (median_arr.size() == 0) median_arr.resize(std::min(median_array_size, iterations_count));
-            if (i < median_arr.size()) median_arr[i] = cur_time;            
+            if (i < median_arr.size()) median_arr[i] = cur_time;
             hrc_start = std::chrono::high_resolution_clock::now();
         }
 
@@ -471,7 +479,7 @@ void benchmark_std_map(T &test_map, size_t const iterations_count,
         }
             break;
         default: std::cout << "\n wrong way! \n";  break;
-        }        
+        }
     }
     safe_vec_max_latency->push_back(max_time);
     safe_vec_median_latency->insert(safe_vec_median_latency->end(), median_arr.begin(), median_arr.end());
@@ -539,17 +547,80 @@ void benchmark_safe_ptr(T safe_map, size_t const iterations_count,
     safe_vec_median_latency->insert(safe_vec_median_latency->end(), median_arr.begin(), median_arr.end());
 }
 
+// for containers 5
+template<typename T>
+void benchmark_safe_hide_ptr_rowlock(T safe_map, size_t const iterations_count,
+    size_t const percent_write, std::function<void(void)> burn_cpu, const bool measure_latency = false)
+{
+    const unsigned int seed = (unsigned)std::chrono::system_clock::now().time_since_epoch().count();
+    std::default_random_engine generator(seed);
+    std::uniform_int_distribution<size_t> index_distribution(0, slock_safe_ptr(safe_map)->size() - 1);
+    std::chrono::high_resolution_clock::time_point hrc_end, hrc_start = std::chrono::high_resolution_clock::now();
+    double max_time = 0;
+    std::vector<double> median_arr;
 
+    for (size_t i = 0; i < iterations_count; ++i) {
+        int const rnd_index = index_distribution(generator);
+        bool const write_flag = (percent_distribution(generator) < percent_write);
+        int const num_op = (write_flag) ? i % 3 : read_op;   // (insert_op, update_op, delete_op), read_op
+
+        if (measure_latency) {
+            hrc_end = std::chrono::high_resolution_clock::now();
+            const double cur_time = std::chrono::duration<double>(hrc_end - hrc_start).count();
+            max_time = std::max(max_time, cur_time);
+            if (median_arr.size() == 0) median_arr.resize(std::min(median_array_size, iterations_count));
+            if (i < median_arr.size()) median_arr[i] = cur_time;
+            hrc_start = std::chrono::high_resolution_clock::now();
+        }
+
+        switch (num_op) {
+        case insert_op:
+            xlock_safe_ptr(safe_map)->emplace(rnd_index, (field_t(rnd_index, rnd_index)));
+            burn_cpu(); // do some work with the data exchange
+            break;
+        case delete_op: {
+            size_t erased_elements = xlock_safe_ptr(safe_map)->erase(rnd_index);
+            burn_cpu(); // do some work with the data exchange
+        }
+            break;
+        case update_op: {
+            auto s_safe_map = slock_safe_ptr(safe_map);
+            auto it = s_safe_map->find(rnd_index);
+            if (it != s_safe_map->cend()) {
+                auto x_field = xlock_safe_ptr(it->second);
+                x_field->money += rnd_index;   // X-lock on Table (must necessarily be)
+                burn_cpu(); // do some work with the data exchange
+            }
+        }
+            break;
+        case read_op: {
+            auto s_safe_map = slock_safe_ptr(safe_map);
+            auto it = s_safe_map->find(rnd_index);
+            if (it != s_safe_map->cend()) {
+                auto x_field = slock_safe_ptr(it->second);
+                volatile int money = x_field->money;   // S-lock on Table (must necessarily be)
+                burn_cpu(); // do some work with the data exchange
+            }
+        }
+            break;
+        default: std::cout << "\n wrong way! \n";  break;
+        }
+    }
+    safe_vec_max_latency->push_back(max_time);
+    safe_vec_median_latency->insert(safe_vec_median_latency->end(), median_arr.begin(), median_arr.end());
+}
 
 int main(int argc, char** argv) {
 
     const size_t iterations_count = 2000000;    // operation of data exchange between threads
-    const size_t container_size = 100000;       // elements in container
-    std::vector<std::thread> vec_thread(std::thread::hardware_concurrency());    // threads number
+    const size_t container_size = 1000000;       // elements in container
+    size_t thread_num = std::thread::hardware_concurrency();
+    thread_num = 4;
+    std::vector<std::thread> vec_thread(thread_num); // threads number
     const bool measure_latency = false;         // measure latency time for each operation (Max, Median)
 
     std::function<void(void)> burn_cpu = []() {};// for (volatile int i = 0; i < 0; ++i);};
-    
+
 	if (argc >= 2) {
 		vec_thread.resize(std::stoi(std::string(argv[1])));		// max threads
 	}
@@ -557,7 +628,7 @@ int main(int argc, char** argv) {
     std::cout << "CPU Cores: " << std::thread::hardware_concurrency() << std::endl;
     std::cout << "Benchmark thread-safe associative containers with size = " << container_size << std::endl;
     std::cout << "Threads = " << vec_thread.size() << ", iterations per thread = " << iterations_count << std::endl;
-    std::cout << "Time & MOps - steady_clock is_steady = " << std::chrono::steady_clock::is_steady << ", num/den = " << 
+    std::cout << "Time & MOps - steady_clock is_steady = " << std::chrono::steady_clock::is_steady << ", num/den = " <<
         (double)std::chrono::steady_clock::period::num << " / " << std::chrono::steady_clock::period::den << std::endl;
     std::cout << "Latency     - high_resolution_clock is_steady = " << std::chrono::high_resolution_clock::is_steady << ", num/den = " <<
         (double)std::chrono::high_resolution_clock::period::num << " / " << std::chrono::high_resolution_clock::period::den << std::endl;
@@ -571,18 +642,20 @@ int main(int argc, char** argv) {
         burn_cpu();
 
     steady_end = std::chrono::steady_clock::now();
-    std::cout << "burn_cpu() for each multithread operations took: " << 
+    std::cout << "burn_cpu() for each multithread operations took: " <<
         std::chrono::duration<double>(steady_end - steady_start).count()*1000 << " nano-sec \n";
     std::cout << std::endl;
 
 
     std::cout << "Filling of containers... ";
     try {
+        auto sl_map_row = xlock_safe_ptr(safe_map_contfree_rowlock_global);
         for (size_t i = 0; i < container_size; ++i)
         {
             map_global.emplace(i, field_t(i, i));
             safe_map_mutex_global->emplace(i, field_t(i, i));
             safe_map_contfree_global->emplace(i, field_t(i, i));
+            sl_map_row->emplace(i, field_t(i, i));
 #ifdef SHARED_MTX
             safe_map_shared_mutex_global->emplace(i, field_t(i, i));
 #endif
@@ -687,10 +760,28 @@ int main(int argc, char** argv) {
 		safe_vec_max_latency->clear();
 		safe_vec_median_latency->clear();
 
+		std::cout << "safe_hide<map,rowlock>:";
+		steady_start = std::chrono::steady_clock::now();
+		for (auto &i : vec_thread) i = std::move(std::thread([&]() {
+			benchmark_safe_hide_ptr_rowlock(safe_map_contfree_rowlock_global, iterations_count, percent_write, burn_cpu, measure_latency);
+		}));
+		for (auto &i : vec_thread) i.join();
+		steady_end = std::chrono::steady_clock::now();
+		took_time = std::chrono::duration<double>(steady_end - steady_start).count();
+		std::cout << "\t" << took_time << " \t" << (vec_thread.size() * iterations_count / (took_time * 1000000));
+		if (measure_latency) {
+			std::sort(safe_vec_median_latency->begin(), safe_vec_median_latency->end());
+			std::cout << " \t " << (safe_vec_median_latency->at(safe_vec_median_latency->size() / 2) * 1000000) <<
+				" \t " << (safe_vec_median_latency->at(5) * 1000000) <<
+				" \t " << *std::max_element(safe_vec_max_latency->begin(), safe_vec_max_latency->end()) * 1000000;
+		}
+		std::cout << std::endl;
+		safe_vec_max_latency->clear();
+		safe_vec_median_latency->clear();
 	}
-	    
-    std::cout << "end"; 
-    int b; std::cin >> b;
+
+    std::cout << "end" << std::endl;
+    // int b; std::cin >> b;
 
     return 0;
 }
