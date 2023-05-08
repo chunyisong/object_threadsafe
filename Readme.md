@@ -48,10 +48,12 @@ Before Pull Requests - please run all necessary benchmarks, preferably on a serv
 
 ---
 
+
 1. How to use `safe_ptr<>` - in the same way as `std::shared_ptr<>`: http://coliru.stacked-crooked.com/a/ccf634f1a5e7f991
 
 
 ```cpp
+// g++ -std=c++14 -O2 -pthread main.cpp && ./a.out
 #include <iostream>
 #include <thread>
 #include <vector>
